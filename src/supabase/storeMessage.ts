@@ -2,7 +2,8 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { client } from "../index.js";
 
 export interface MessageStore {
-    assistant_id: string;
+    sender_id: string;  // Can be user ID or assistant ID
+    receiver_id: string;  // Can be user ID or assistant ID
     thread_id: string;
     run_id?: string;
     message_id: string;

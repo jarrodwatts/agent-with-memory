@@ -15,7 +15,7 @@ export default async function searchSimilarMessages(supabase: SupabaseClient, qu
     console.log('🔍 Executing similarity search in database...');
     const result = await supabase.rpc('match_messages', {
         query_embedding: embedding.data[0].embedding,
-        match_threshold: 0.7,
+        match_threshold: 0.75,
         match_count: 5
     });
 
@@ -29,6 +29,9 @@ export default async function searchSimilarMessages(supabase: SupabaseClient, qu
     }
 
     console.log(`✅ Search complete. Found ${result.data?.length || 0} matches`);
+
+    // Log out the matches
+    console.log('🔍 Matches:', result.data);
     
     return result;
 }

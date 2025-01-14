@@ -1,82 +1,76 @@
 import 'dotenv/config';
 import OpenAI from "openai";
 import readline from 'readline';
-import { createAssistant } from './openai/createAssistant.js';
-import { createThread } from './openai/createThread.js';
 import { createRun } from './openai/createRun.js';
 import { performRun } from './openai/performRun.js';
 import { Thread } from 'openai/resources/beta/threads/threads';
 import { Assistant } from 'openai/resources/beta/assistants';
+import { Agent } from './types/Agent.js';
+import { createAssistant } from './openai/createAssistant.js';
+import { createThread } from './openai/createThread.js';
+import storeMessage from './supabase/storeMessage.js';
 import supabase from './supabase/initSupabaseClient.js';
-import storeMessage, { MessageStore } from './supabase/storeMessage.js';
-import searchSimilarMessages from './supabase/search.js';
 
+// Simple in-memory store for agents and their threads
+export const agents: Record<string, Agent> = {};
+export let ceoAgentId: string;
+
+// Create OpenAI client
 export const client = new OpenAI();
 
-// Create interface for reading from command line
+// Use rl for simple chat interface reading from command line to communicate to CEO agent
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
 });
 
-// Type-safe promise-based question function
+// Function to get the value you ask the CEO agent from the command line input.
 const question = (query: string): Promise<string> => {
     return new Promise((resolve) => rl.question(query, resolve));
 };
 
+// Core loop: Chat repeatedly asks the user for their next question to the CEO agent
+// Until the user types "exit" or just kills the process
 async function chat(thread: Thread, assistant: Assistant): Promise<void> {
     while (true) {
+        
+        // Get the input from the user via command line.
         const userInput = await question('\nYou: ');
 
+        // If the user types "exit", close the chat and break the loop to exit the program
         if (userInput.toLowerCase() === 'exit') {
             rl.close();
             break;
         }
 
         try {
-            // Search for relevant context before responding
-            const similarMessages = await searchSimilarMessages(supabase, userInput);
-            let contextPrompt = '';
-            
-            if (similarMessages.data && similarMessages.data.length > 0) {
-                contextPrompt = `Previous relevant context:\n${similarMessages.data
-                    .map((msg: MessageStore) => `${msg.role}: ${msg.content}`)
-                    .join('\n')}\n\nGiven this context, please respond to: ${userInput}`;
-            }
-
-            // Add the user's message to the thread
-            const userMessage = await client.beta.threads.messages.create(thread.id, {
+            // Add user's input as a message to thread with the CEO agent
+            const message = await client.beta.threads.messages.create(thread.id, {
                 role: "user",
-                content: contextPrompt || userInput
+                content: userInput,
             });
-
-            // Store user message
+            
+            // Store message
             await storeMessage(supabase, {
-                assistant_id: assistant.id,
+                sender_id: "USER",
+                receiver_id: assistant.id,
+                content: userInput,
+                message_id: message.id,
                 thread_id: thread.id,
-                message_id: userMessage.id,
-                content: userInput, // Store original input, not the context-enhanced version
-                role: 'user'
-            });
+                role: "user"
+            })
 
-            // Create and perform the run
-            const run = await createRun(client, thread, assistant.id);
-            const result = await performRun(run, client, thread);
+            // Handle the message request by creating a new run
+            const run = await createRun(client, thread, assistant.id, userInput);
 
+            // Handle the run (and perform tool requests) and get the resulting response from the CEO.
+            const result = await performRun(run, client, thread, "USER");
+
+            // Display the CEO agent's response
             if (result?.type === 'text') {
-                console.log('\nAlt:', result.text.value);
-
-                // Store assistant message
-                await storeMessage(supabase, {
-                    assistant_id: assistant.id,
-                    thread_id: thread.id,
-                    run_id: run.id,
-                    message_id: (await client.beta.threads.messages.list(thread.id)).data[0].id,
-                    content: result.text.value,
-                    role: 'assistant',
-                    tool_calls: run.required_action?.submit_tool_outputs?.tool_calls
-                });
+                console.log(`\nCEO: ${result.text.value}`);
             }
+
         } catch (error) {
             console.error('Error during chat:', error instanceof Error ? error.message : 'Unknown error');
             rl.close();
@@ -87,11 +81,34 @@ async function chat(thread: Thread, assistant: Assistant): Promise<void> {
 
 async function main(): Promise<void> {
     try {
-        const assistant = await createAssistant(client);
+        console.log('Chat started! Type your first message to the CEO:');
+
+        // Create the initial CEO agent with a simple system prompt
+        const assistant = await createAssistant(
+            client,
+            "CEO",
+            "You are the CEO of a company. You are responsible for making decisions about the company."
+        );
+
+        // Create a thread to send messages to the CEO agent and vice versa
         const thread = await createThread(client);
 
-        console.log('Chat started! Type "exit" to end the conversation.');
+        // Add the CEO agent to the agents object
+        agents[assistant.id] = {
+            assistant: assistant,
+            threads: {
+                [assistant.id]: thread
+            },
+            metadata: {
+                managerAssistantId: null,
+                subordinateAssistantIds: []
+            }
+        };
+        ceoAgentId = assistant.id;
+
+        // Start the chat loop
         await chat(thread, assistant);
+
     } catch (error) {
         console.error('Error in main:', error instanceof Error ? error.message : 'Unknown error');
         rl.close();

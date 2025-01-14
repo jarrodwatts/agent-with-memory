@@ -1,4 +1,8 @@
-
+import { createAgentTool } from "./agents/createAgentTool.js";
+import { getTeamTool } from "./agents/getTeamTool.js";
+import { sendMessageTool } from "./agents/sendMessageTool.js";
+import { getBalanceTool } from "./getBalance.js";
+import { getWalletAddressTool } from "./getWalletAddress.js";
 
 export interface ToolConfig<T = any> {
     definition: {
@@ -17,5 +21,12 @@ export interface ToolConfig<T = any> {
 }
 
 export const tools: Record<string, ToolConfig> = {
-    // Put tools here
+    // Onchain actions
+    get_wallet_address: getWalletAddressTool,
+    get_balance: getBalanceTool,
+
+    // Agent management
+    create_agent: createAgentTool,  
+    get_team_structure: getTeamTool,
+    send_message_to_agent: sendMessageTool,
 };
