@@ -33,7 +33,7 @@ const question = (query: string): Promise<string> => {
 // Until the user types "exit" or just kills the process
 async function chat(thread: Thread, assistant: Assistant): Promise<void> {
     while (true) {
-        
+
         // Get the input from the user via command line.
         const userInput = await question('\nYou: ');
 
@@ -49,7 +49,13 @@ async function chat(thread: Thread, assistant: Assistant): Promise<void> {
                 role: "user",
                 content: userInput,
             });
-            
+
+            // Handle the message request by creating a new run
+            const run = await createRun(client, thread, assistant.id, userInput);
+
+            // Handle the run (and perform tool requests) and get the resulting response from the CEO.
+            const result = await performRun(run, client, thread, "USER");
+
             // Store message
             await storeMessage(supabase, {
                 sender_id: "USER",
@@ -59,12 +65,6 @@ async function chat(thread: Thread, assistant: Assistant): Promise<void> {
                 thread_id: thread.id,
                 role: "user"
             })
-
-            // Handle the message request by creating a new run
-            const run = await createRun(client, thread, assistant.id, userInput);
-
-            // Handle the run (and perform tool requests) and get the resulting response from the CEO.
-            const result = await performRun(run, client, thread, "USER");
 
             // Display the CEO agent's response
             if (result?.type === 'text') {
